@@ -30,10 +30,16 @@ The current skeleton already provides:
 **Exit criteria:** bot never panics, always returns a legal `Direction`, and reliably avoids obvious immediate losses.
 
 ### 2. Finish the board-analysis layer
-- [ ] Add shortest-path helpers tailored for simultaneous-move evaluation
-- [ ] Add Voronoi territory counts from both heads
-- [ ] Add articulation / choke / corridor width detection
-- [ ] Add symmetry normalization helpers for future ML features
+- [x] Add `head_positions(...)` helpers for self/opponent lookup in analysis code
+- [x] Build a generic BFS/flood-fill helper as the common traversal primitive
+- [x] Refactor reachable-area logic to use the generic traversal helper
+- [x] Add shortest-path / distance-map helpers for arbitrary valid starting cells
+- [x] Add connected-region extraction, not just component counting
+- [x] Add Voronoi territory counts from both heads, including contested cells
+- [x] Add stronger corridor-width / local narrowness detection beyond raw neighbor count
+- [x] Add articulation / choke-point detection scaffolding where lightweight enough
+- [x] Add symmetry normalization helpers for future ML feature extraction
+- [x] Add focused regression tests for BFS, distance maps, connected regions, Voronoi, and corridor detection
 
 **Exit criteria:** the bot module has a stable internal analysis toolkit instead of ad hoc per-feature code.
 
@@ -103,6 +109,26 @@ The current skeleton already provides:
 - [ ] Verify no panics / no invalid moves under long batch runs
 
 **Exit criteria:** stable tournament-ready bot with reproducible results.
+
+### Delegate to smaller local model
+
+- Phase 1
+- Phase 2
+- Phase 7
+- Phase 8
+- Phase 10
+- much of the raw harness work in Phase 12
+
+### sota
+
+- Phase 3
+- Phase 4
+- Phase 5
+- Phase 6
+- Phase 9
+- Phase 11
+- analysis/decision-making parts of Phase 12
+
 
 ## Suggested next implementation checkpoints
 
