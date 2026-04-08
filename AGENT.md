@@ -48,6 +48,10 @@ The current skeleton already provides:
 - [x] Score reachable space after the move more accurately
 - [x] Add self-trap penalties and cut-opponent bonuses
 - [x] Tune tie-breaking to stay deterministic while stronger than the example bot
+- [x] Revisit edge/wall penalties so wall-hugging is not over-penalized in stable positions
+- [x] Add targeted benchmark scenarios and regression checks for wall-hugging exploit lines
+- [x] Improve heuristic shape-awareness for edge races, partition quality, and semi-split geometry
+- [x] Re-tune Phase 3 weights using the multi-opening benchmark before Phase 4 search/phase work
 
 **Exit criteria:** `HeuristicBot v1` consistently beats trivial and noisy baselines.
 

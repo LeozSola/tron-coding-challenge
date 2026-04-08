@@ -7,9 +7,9 @@ use crate::players::strategy_wall_hug::StrategyWallHugBot;
 
 use super::analysis::{
     calculate_voronoi_territory, connected_component_count, connected_regions,
-    distance_map_from_cell, distance_map_from_head, empty_neighbor_count,
-    is_articulation_candidate, local_open_area_score, normalized_relative_offset,
-    reachable_area_count,
+    distance_map_from_cell, distance_map_from_head, edge_escape_routes, empty_neighbor_count,
+    is_articulation_candidate, is_semi_split_pressure, largest_reachable_region_ratio,
+    local_open_area_score, normalized_relative_offset, reachable_area_count,
 };
 use super::heuristic::HeuristicEvaluator;
 use super::safety::MoveSafetyAnalyzer;
@@ -57,7 +57,7 @@ struct OpeningScenario {
     script: &'static [(Direction, Direction)],
 }
 
-const OPENING_SCENARIOS: [OpeningScenario; 6] = [
+const OPENING_SCENARIOS: [OpeningScenario; 8] = [
     OpeningScenario {
         label: "default",
         script: &[],
@@ -96,6 +96,25 @@ const OPENING_SCENARIOS: [OpeningScenario; 6] = [
             (Direction::PositiveY, Direction::NegativeY),
             (Direction::NegativeX, Direction::NegativeY),
             (Direction::NegativeY, Direction::NegativeX),
+        ],
+    },
+    OpeningScenario {
+        label: "wall_hug_lane_race",
+        script: &[
+            (Direction::PositiveY, Direction::NegativeY),
+            (Direction::NegativeX, Direction::PositiveX),
+            (Direction::NegativeX, Direction::PositiveX),
+            (Direction::PositiveY, Direction::NegativeY),
+        ],
+    },
+    OpeningScenario {
+        label: "edge_stability_probe",
+        script: &[
+            (Direction::PositiveY, Direction::NegativeY),
+            (Direction::PositiveY, Direction::NegativeY),
+            (Direction::NegativeX, Direction::PositiveX),
+            (Direction::NegativeX, Direction::PositiveX),
+            (Direction::NegativeY, Direction::PositiveY),
         ],
     },
 ];
@@ -189,6 +208,38 @@ fn summarize_pairing(player_o_kind: BenchmarkBotKind, player_x_kind: BenchmarkBo
     }
 
     summary
+}
+
+fn summarize_pairing_for_scenarios(
+    player_o_kind: BenchmarkBotKind,
+    player_x_kind: BenchmarkBotKind,
+    scenarios: &[OpeningScenario],
+) -> MatchSummary {
+    let mut summary = MatchSummary::default();
+
+    for scenario in scenarios {
+        if let Some(result) = run_matchup(player_o_kind, player_x_kind, scenario.script) {
+            summary.record_as_player_o(result);
+        }
+    }
+
+    summary
+}
+
+fn summarize_named_scenarios(
+    player_o_kind: BenchmarkBotKind,
+    player_x_kind: BenchmarkBotKind,
+    scenarios: &[OpeningScenario],
+) -> Vec<(&'static str, Option<GameOver>)> {
+    scenarios
+        .iter()
+        .map(|scenario| {
+            (
+                scenario.label,
+                run_matchup(player_o_kind, player_x_kind, scenario.script),
+            )
+        })
+        .collect()
 }
 
 fn print_pairing_result(label: &str, summary: MatchSummary, rounds: usize) {
@@ -390,6 +441,10 @@ fn heuristic_rewards_territory_and_open_space() {
         local_open_area: 12,
         center_preference: 0.8,
         opponent_distance: 3,
+        largest_region_ratio: 1.0,
+        region_fragmentation: 1,
+        edge_escape_routes: 3,
+        semi_split_pressure: false,
         narrow_corridor: false,
         wall_hugging: false,
         articulation_risk: false,
@@ -408,6 +463,10 @@ fn heuristic_rewards_territory_and_open_space() {
         local_open_area: 5,
         center_preference: 0.5,
         opponent_distance: 3,
+        largest_region_ratio: 0.75,
+        region_fragmentation: 2,
+        edge_escape_routes: 1,
+        semi_split_pressure: true,
         narrow_corridor: false,
         wall_hugging: false,
         articulation_risk: false,
@@ -438,6 +497,10 @@ fn heuristic_penalizes_self_trap_signals() {
         local_open_area: 10,
         center_preference: 0.7,
         opponent_distance: 5,
+        largest_region_ratio: 1.0,
+        region_fragmentation: 1,
+        edge_escape_routes: 3,
+        semi_split_pressure: false,
         narrow_corridor: false,
         wall_hugging: false,
         articulation_risk: false,
@@ -456,6 +519,10 @@ fn heuristic_penalizes_self_trap_signals() {
         local_open_area: 3,
         center_preference: 0.3,
         opponent_distance: 5,
+        largest_region_ratio: 0.65,
+        region_fragmentation: 2,
+        edge_escape_routes: 0,
+        semi_split_pressure: true,
         narrow_corridor: true,
         wall_hugging: true,
         articulation_risk: true,
@@ -469,6 +536,131 @@ fn heuristic_penalizes_self_trap_signals() {
     };
 
     assert!(evaluator.score_features(safe) > evaluator.score_features(trapped));
+}
+
+#[test]
+fn heuristic_softens_wall_penalty_for_stable_edge_positions() {
+    let evaluator = HeuristicEvaluator::new(
+        PlayerId::new_o(),
+        HeuristicWeights::default(),
+        OpponentProfile::default(),
+    );
+
+    let stable_edge = MoveFeatures {
+        reachable_area: 22,
+        projected_reachable_area: 24,
+        branching_factor: 3,
+        local_open_area: 10,
+        center_preference: 0.2,
+        opponent_distance: 5,
+        largest_region_ratio: 1.0,
+        region_fragmentation: 1,
+        edge_escape_routes: 3,
+        semi_split_pressure: false,
+        narrow_corridor: false,
+        wall_hugging: true,
+        articulation_risk: false,
+        self_trap_risk: false,
+        voronoi_mine: 24,
+        voronoi_theirs: 18,
+        voronoi_contested: 4,
+        territory_balance: 6,
+        cut_potential: 6,
+        phase: GamePhase::Split,
+    };
+    let same_but_not_wall = MoveFeatures {
+        wall_hugging: false,
+        ..stable_edge
+    };
+
+    let score_gap = evaluator.score_features(same_but_not_wall) - evaluator.score_features(stable_edge);
+    assert!(score_gap < 0.0);
+}
+
+#[test]
+fn heuristic_keeps_fuller_wall_penalty_for_cramped_edge_positions() {
+    let evaluator = HeuristicEvaluator::new(
+        PlayerId::new_o(),
+        HeuristicWeights::default(),
+        OpponentProfile::default(),
+    );
+
+    let cramped_edge = MoveFeatures {
+        reachable_area: 10,
+        projected_reachable_area: 8,
+        branching_factor: 1,
+        local_open_area: 3,
+        center_preference: 0.2,
+        opponent_distance: 2,
+        largest_region_ratio: 0.7,
+        region_fragmentation: 2,
+        edge_escape_routes: 0,
+        semi_split_pressure: true,
+        narrow_corridor: true,
+        wall_hugging: true,
+        articulation_risk: true,
+        self_trap_risk: true,
+        voronoi_mine: 8,
+        voronoi_theirs: 15,
+        voronoi_contested: 2,
+        territory_balance: -7,
+        cut_potential: 0,
+        phase: GamePhase::Contact,
+    };
+    let same_but_not_wall = MoveFeatures {
+        wall_hugging: false,
+        ..cramped_edge
+    };
+
+    let score_gap = evaluator.score_features(same_but_not_wall) - evaluator.score_features(cramped_edge);
+    assert!(score_gap >= HeuristicWeights::default().wall_hugging_penalty);
+}
+
+#[test]
+fn benchmark_targeted_wall_hug_scenarios_show_no_losing_record() {
+    let targeted = [OPENING_SCENARIOS[3], OPENING_SCENARIOS[5], OPENING_SCENARIOS[6], OPENING_SCENARIOS[7]];
+
+    let as_player_o = summarize_pairing_for_scenarios(
+        BenchmarkBotKind::CompBotCur,
+        BenchmarkBotKind::WallHug,
+        &targeted,
+    );
+    let as_player_x = summarize_pairing_for_scenarios(
+        BenchmarkBotKind::WallHug,
+        BenchmarkBotKind::CompBotCur,
+        &targeted,
+    );
+    let as_player_x_for_comp = MatchSummary {
+        wins: as_player_x.losses,
+        losses: as_player_x.wins,
+        draws: as_player_x.draws,
+    };
+
+    assert!(
+        as_player_o.wins >= as_player_o.losses,
+        "compBotCur should not have a losing record as player O in targeted wall-hug scenarios: {:?}",
+        as_player_o
+    );
+    assert!(
+        as_player_x_for_comp.wins >= as_player_x_for_comp.losses,
+        "compBotCur should not have a losing record as player X in targeted wall-hug scenarios: {:?}",
+        as_player_x_for_comp
+    );
+}
+
+#[test]
+fn debug_targeted_wall_hug_scenario_results() {
+    let targeted = [OPENING_SCENARIOS[3], OPENING_SCENARIOS[5], OPENING_SCENARIOS[6], OPENING_SCENARIOS[7]];
+
+    println!("CompBotCur as O vs WallHug as X:");
+    for (label, result) in summarize_named_scenarios(BenchmarkBotKind::CompBotCur, BenchmarkBotKind::WallHug, &targeted) {
+        println!("- {label}: {:?}", result);
+    }
+
+    println!("WallHug as O vs CompBotCur as X:");
+    for (label, result) in summarize_named_scenarios(BenchmarkBotKind::WallHug, BenchmarkBotKind::CompBotCur, &targeted) {
+        println!("- {label}: {:?}", result);
+    }
 }
 
 #[test]
@@ -490,6 +682,64 @@ fn heuristic_evaluation_populates_phase_three_features() {
     assert!(features.projected_reachable_area > 0);
     assert!(features.local_open_area > 0);
     assert!(features.voronoi_mine + features.voronoi_theirs + features.voronoi_contested > 0);
+    assert!(features.largest_region_ratio > 0.0);
+}
+
+#[test]
+fn heuristic_rewards_stronger_partition_quality() {
+    let evaluator = HeuristicEvaluator::new(
+        PlayerId::new_o(),
+        HeuristicWeights::default(),
+        OpponentProfile::default(),
+    );
+
+    let strong_partition = MoveFeatures {
+        reachable_area: 20,
+        projected_reachable_area: 22,
+        branching_factor: 3,
+        local_open_area: 9,
+        center_preference: 0.4,
+        opponent_distance: 4,
+        largest_region_ratio: 1.0,
+        region_fragmentation: 1,
+        edge_escape_routes: 3,
+        semi_split_pressure: false,
+        narrow_corridor: false,
+        wall_hugging: false,
+        articulation_risk: false,
+        self_trap_risk: false,
+        voronoi_mine: 24,
+        voronoi_theirs: 18,
+        voronoi_contested: 3,
+        territory_balance: 6,
+        cut_potential: 6,
+        phase: GamePhase::Split,
+    };
+    let weak_partition = MoveFeatures {
+        largest_region_ratio: 0.68,
+        region_fragmentation: 2,
+        edge_escape_routes: 0,
+        semi_split_pressure: true,
+        territory_balance: 1,
+        cut_potential: 1,
+        ..strong_partition
+    };
+
+    assert!(evaluator.score_features(strong_partition) > evaluator.score_features(weak_partition));
+}
+
+#[test]
+fn analysis_detects_open_region_quality_signals() {
+    let state = GameState::new();
+    let grid = state.current_grid();
+    let start = grid
+        .player_head_position(PlayerId::new_o())
+        .after_moved(Direction::PositiveY)
+        .expect("in bounds");
+
+    assert!(largest_reachable_region_ratio(grid, start) > 0.9);
+    assert!(edge_escape_routes(grid, start) >= 2);
+    assert!(!is_semi_split_pressure(24, 10, 3, 2, 1.0));
 }
 
 #[test]

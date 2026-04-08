@@ -133,6 +133,87 @@ pub fn connected_regions(grid: &Grid) -> Vec<Vec<GridPosition>> {
     regions
 }
 
+/// Fraction of reachable cells contained in the largest reachable region from a start cell.
+pub fn largest_reachable_region_ratio(grid: &Grid, start: GridPosition) -> f32 {
+    let reachable = distance_map_from_head(grid, start)
+        .into_iter()
+        .flatten()
+        .count();
+    if reachable == 0 {
+        return 0.0;
+    }
+
+    let adjacent_reachable: Vec<GridPosition> = neighbors(start)
+        .into_iter()
+        .flatten()
+        .filter(|position| grid.cell_is_empty(*position))
+        .collect();
+
+    let largest = connected_regions(grid)
+        .into_iter()
+        .filter(|region| {
+            region
+                .iter()
+                .any(|position| adjacent_reachable.iter().any(|candidate| candidate == position))
+        })
+        .map(|region| region.len())
+        .max()
+        .unwrap_or(0);
+
+    largest as f32 / reachable as f32
+}
+
+/// Number of connected empty regions on the board that are reachable from the start cell's component boundary.
+pub fn reachable_region_fragmentation(grid: &Grid, start: GridPosition) -> usize {
+    let adjacent_reachable: Vec<GridPosition> = neighbors(start)
+        .into_iter()
+        .flatten()
+        .filter(|position| grid.cell_is_empty(*position))
+        .collect();
+
+    if adjacent_reachable.is_empty() {
+        return 0;
+    }
+
+    connected_regions(grid)
+        .into_iter()
+        .filter(|region| {
+            region
+                .iter()
+                .any(|position| adjacent_reachable.iter().any(|candidate| candidate == position))
+        })
+        .count()
+}
+
+/// Count how many adjacent empty cells provide roomy continuation near the edge.
+pub fn edge_escape_routes(grid: &Grid, position: GridPosition) -> usize {
+    neighbors(position)
+        .into_iter()
+        .flatten()
+        .filter(|neighbor| {
+            grid.cell_is_empty(*neighbor)
+                && empty_neighbor_count(grid, *neighbor) >= 2
+                && local_open_area_score(grid, *neighbor, 2) >= 4
+        })
+        .count()
+}
+
+/// Detect awkward semi-split geometry: some territory exists, but local exits are scarce and area is fragmented/tight.
+pub fn is_semi_split_pressure(
+    projected_reachable_area: usize,
+    local_open_area: usize,
+    branching_factor: usize,
+    territory_balance: isize,
+    largest_region_ratio: f32,
+) -> bool {
+    projected_reachable_area >= 10
+        && projected_reachable_area <= 28
+        && territory_balance >= -2
+        && local_open_area <= 7
+        && branching_factor <= 2
+        && largest_region_ratio < 0.9
+}
+
 /// Count connected empty components on the board
 pub fn connected_component_count(grid: &Grid) -> usize {
     connected_regions(grid).len()

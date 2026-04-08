@@ -1,9 +1,10 @@
 use crate::engine::prelude::*;
 
 use super::analysis::{
-    calculate_voronoi_territory, center_preference, distance_map_from_head,
+    calculate_voronoi_territory, center_preference, distance_map_from_head, edge_escape_routes,
     empty_neighbor_count, is_articulation_candidate, is_narrow_corridor_entry,
-    is_wall_hugging, local_open_area_score, manhattan_distance, reachable_area_count,
+    is_semi_split_pressure, is_wall_hugging, largest_reachable_region_ratio,
+    local_open_area_score, manhattan_distance, reachable_area_count, reachable_region_fragmentation,
 };
 use super::safety::MoveSafetyAnalyzer;
 use super::types::{GamePhase, HeuristicWeights, MoveFeatures, MoveSafety, OpponentProfile, ScoredMove};
@@ -98,23 +99,26 @@ impl HeuristicEvaluator {
         };
 
         let pressure_window = 4usize.saturating_sub(features.opponent_distance) as f32;
+        let center_weight = self.contextual_center_weight(features);
         let mut score = 0.0;
         score += features.projected_reachable_area as f32 * area_weight;
         score += features.reachable_area as f32 * self.weights.reachable_area_weight;
         score += features.branching_factor as f32 * branching_weight;
         score += features.local_open_area as f32 * self.weights.local_open_area_weight;
-        score += features.center_preference * self.weights.center_preference_weight;
+        score += features.center_preference * center_weight;
         score += features.territory_balance as f32 * self.weights.territory_balance_weight;
         score += features.voronoi_contested as f32 * self.weights.contested_territory_weight;
         score += features.cut_potential as f32 * self.weights.cut_opponent_bonus_weight;
         score += pressure_window * self.weights.opponent_pressure_bonus;
+        score += self.edge_stability_bonus(features);
+        score += self.partition_quality_bonus(features);
 
         if features.narrow_corridor {
             score -= self.weights.narrow_corridor_penalty;
         }
 
         if features.wall_hugging {
-            score -= self.weights.wall_hugging_penalty;
+            score -= self.contextual_wall_penalty(features);
         }
 
         if features.articulation_risk {
@@ -126,6 +130,87 @@ impl HeuristicEvaluator {
         }
 
         score
+    }
+
+    fn contextual_center_weight(&self, features: MoveFeatures) -> f32 {
+        let mut weight = self.weights.center_preference_weight;
+
+        if features.phase == GamePhase::Split {
+            weight *= 0.6;
+        }
+
+        if features.wall_hugging && self.is_stable_edge_position(features) {
+            weight *= 0.25;
+        }
+
+        weight
+    }
+
+    fn edge_stability_bonus(&self, features: MoveFeatures) -> f32 {
+        if !features.wall_hugging || !self.is_stable_edge_position(features) {
+            return 0.0;
+        }
+
+        let territorial_margin = features.territory_balance.max(0) as f32 * 0.35;
+        let local_space_margin = features.local_open_area.saturating_sub(6) as f32 * 0.45;
+        let projected_margin = features.projected_reachable_area.saturating_sub(14) as f32 * 0.20;
+
+        territorial_margin + local_space_margin + projected_margin
+    }
+
+    fn partition_quality_bonus(&self, features: MoveFeatures) -> f32 {
+        let mut bonus = 0.0;
+
+        bonus += features.largest_region_ratio * 8.0;
+        bonus += features.edge_escape_routes as f32 * 1.8;
+        bonus -= features.region_fragmentation.saturating_sub(1) as f32 * 3.0;
+
+        if features.semi_split_pressure {
+            bonus -= 6.0;
+        }
+
+        if features.phase == GamePhase::Split && features.territory_balance > 0 {
+            bonus += features.territory_balance as f32 * 0.15;
+        }
+
+        bonus
+    }
+
+    fn is_stable_edge_position(&self, features: MoveFeatures) -> bool {
+        match features.phase {
+            GamePhase::Split => {
+                features.projected_reachable_area >= 20
+                    && features.local_open_area >= 8
+                    && features.territory_balance >= 0
+                    && !features.narrow_corridor
+                    && !features.self_trap_risk
+            }
+            GamePhase::Endgame => {
+                features.projected_reachable_area >= 10
+                    && features.local_open_area >= 4
+                    && !features.self_trap_risk
+            }
+            GamePhase::Contact => {
+                features.projected_reachable_area >= 18
+                    && features.local_open_area >= 7
+                    && features.territory_balance >= 0
+                    && features.opponent_distance >= 3
+                    && !features.narrow_corridor
+                    && !features.self_trap_risk
+            }
+        }
+    }
+
+    fn contextual_wall_penalty(&self, features: MoveFeatures) -> f32 {
+        let mut penalty = self.weights.wall_hugging_penalty;
+
+        if self.is_stable_edge_position(features) {
+            penalty *= 0.15;
+        } else if features.narrow_corridor || features.self_trap_risk || features.articulation_risk {
+            penalty *= 1.25;
+        }
+
+        penalty
     }
 
     fn extract_features(
@@ -147,19 +232,36 @@ impl HeuristicEvaluator {
             &[self.my_player_id, self.my_player_id.other()],
         );
         let local_open_area = local_open_area_score(grid, candidate_position, 3);
+        let branching_factor = empty_neighbor_count(grid, candidate_position);
+        let largest_region_ratio = largest_reachable_region_ratio(&projected_grid, candidate_position);
+        let region_fragmentation = reachable_region_fragmentation(&projected_grid, candidate_position);
         let articulation_risk = is_articulation_candidate(grid, candidate_position);
         let narrow_corridor = is_narrow_corridor_entry(grid, candidate_position);
+        let edge_escape_routes = edge_escape_routes(&projected_grid, candidate_position);
+        let territory_balance = voronoi.mine as isize - voronoi.theirs as isize;
+        let semi_split_pressure = is_semi_split_pressure(
+            projected_reachable_area,
+            local_open_area,
+            branching_factor,
+            territory_balance,
+            largest_region_ratio,
+        );
         let self_trap_risk = projected_reachable_area <= 12
             || (narrow_corridor && local_open_area <= 6)
-            || articulation_risk;
+            || articulation_risk
+            || (semi_split_pressure && edge_escape_routes == 0);
 
         MoveFeatures {
             reachable_area: reachable_area_count(grid, candidate_position),
             projected_reachable_area,
-            branching_factor: empty_neighbor_count(grid, candidate_position),
+            branching_factor,
             local_open_area,
             center_preference: center_preference(candidate_position),
             opponent_distance: manhattan_distance(candidate_position, opponent_head),
+            largest_region_ratio,
+            region_fragmentation,
+            edge_escape_routes,
+            semi_split_pressure,
             narrow_corridor,
             wall_hugging: is_wall_hugging(candidate_position),
             articulation_risk,
@@ -167,7 +269,7 @@ impl HeuristicEvaluator {
             voronoi_mine: voronoi.mine,
             voronoi_theirs: voronoi.theirs,
             voronoi_contested: voronoi.contested,
-            territory_balance: voronoi.mine as isize - voronoi.theirs as isize,
+            territory_balance,
             cut_potential: voronoi.mine.saturating_sub(voronoi.theirs),
             phase,
         }
