@@ -1,9 +1,13 @@
 use crate::engine::{GameOver, prelude::*};
 use crate::players::competitive_bot_v1::CompetitiveBot as CompetitiveBotV1;
-use crate::players::strategy_center::StrategyCenterBot;
-use crate::players::strategy_greedy_space::StrategyGreedySpaceBot;
-use crate::players::strategy_safe::StrategySafeBot;
-use crate::players::strategy_wall_hug::StrategyWallHugBot;
+use crate::players::strategy_bots::strategy_chaser::StrategyChaserBot;
+use crate::players::strategy_bots::strategy_center::StrategyCenterBot;
+use crate::players::strategy_bots::strategy_corner::StrategyCornerBot;
+use crate::players::strategy_bots::strategy_greedy_space::StrategyGreedySpaceBot;
+use crate::players::strategy_bots::strategy_max_branch::StrategyMaxBranchBot;
+use crate::players::strategy_bots::strategy_safe::StrategySafeBot;
+use crate::players::strategy_bots::strategy_straight::StrategyStraightBot;
+use crate::players::strategy_bots::strategy_wall_hug::StrategyWallHugBot;
 
 use super::analysis::{
     calculate_voronoi_territory, connected_component_count, connected_regions,
@@ -26,17 +30,38 @@ enum BenchmarkBotKind {
     Safe,
     WallHug,
     Center,
+    Corner,
     GreedySpace,
+    MaxBranch,
+    Chaser,
+    Straight,
 }
 
 impl BenchmarkBotKind {
-    const ALL: [Self; 6] = [
+    const COMP_BOTS: [Self; 2] = [Self::CompBotCur, Self::CompBotV1];
+
+    const BASELINE_BOTS: [Self; 8] = [
+        Self::Safe,
+        Self::WallHug,
+        Self::Center,
+        Self::Corner,
+        Self::GreedySpace,
+        Self::MaxBranch,
+        Self::Chaser,
+        Self::Straight,
+    ];
+
+    const ALL: [Self; 10] = [
         Self::CompBotCur,
         Self::CompBotV1,
         Self::Safe,
         Self::WallHug,
         Self::Center,
+        Self::Corner,
         Self::GreedySpace,
+        Self::MaxBranch,
+        Self::Chaser,
+        Self::Straight,
     ];
 
     const fn label(self) -> &'static str {
@@ -46,7 +71,11 @@ impl BenchmarkBotKind {
             Self::Safe => "strategy_safe",
             Self::WallHug => "strategy_wall_hug",
             Self::Center => "strategy_center",
+            Self::Corner => "strategy_corner",
             Self::GreedySpace => "strategy_greedy_space",
+            Self::MaxBranch => "strategy_max_branch",
+            Self::Chaser => "strategy_chaser",
+            Self::Straight => "strategy_straight",
         }
     }
 }
@@ -155,7 +184,11 @@ fn instantiate_bot(kind: BenchmarkBotKind, player_id: PlayerId) -> Box<dyn BotRu
         BenchmarkBotKind::Safe => Box::new(StrategySafeBot::new(player_id)),
         BenchmarkBotKind::WallHug => Box::new(StrategyWallHugBot::new(player_id)),
         BenchmarkBotKind::Center => Box::new(StrategyCenterBot::new(player_id)),
+        BenchmarkBotKind::Corner => Box::new(StrategyCornerBot::new(player_id)),
         BenchmarkBotKind::GreedySpace => Box::new(StrategyGreedySpaceBot::new(player_id)),
+        BenchmarkBotKind::MaxBranch => Box::new(StrategyMaxBranchBot::new(player_id)),
+        BenchmarkBotKind::Chaser => Box::new(StrategyChaserBot::new(player_id)),
+        BenchmarkBotKind::Straight => Box::new(StrategyStraightBot::new(player_id)),
     }
 }
 
@@ -252,7 +285,7 @@ fn print_pairing_result(label: &str, summary: MatchSummary, rounds: usize) {
 #[test]
 fn benchmark_simple_strategies_against_heuristic_bot_v1() {
     println!(
-        "=== Ordered 1v1 benchmark ({} opening scenarios each) ===",
+        "=== Comp bot focused 1v1 benchmark ({} opening scenarios each) ===",
         OPENING_SCENARIOS.len()
     );
     println!("Openings:");
@@ -260,39 +293,48 @@ fn benchmark_simple_strategies_against_heuristic_bot_v1() {
         println!("- {} ({} ply)", scenario.label, scenario.script.len());
     }
 
-    let mut totals = [(BenchmarkBotKind::CompBotCur, MatchSummary::default()); 6];
-    for (slot, kind) in totals.iter_mut().zip(BenchmarkBotKind::ALL) {
+    let mut totals = [(BenchmarkBotKind::CompBotCur, MatchSummary::default()); 2];
+    for (slot, kind) in totals.iter_mut().zip(BenchmarkBotKind::COMP_BOTS) {
         slot.0 = kind;
     }
 
-    for player_o_kind in BenchmarkBotKind::ALL {
-        for player_x_kind in BenchmarkBotKind::ALL {
-            let summary = summarize_pairing(player_o_kind, player_x_kind);
-            let label = format!("{} vs {}", player_o_kind.label(), player_x_kind.label());
-            print_pairing_result(&label, summary, OPENING_SCENARIOS.len());
+    for comp_kind in BenchmarkBotKind::COMP_BOTS {
+        println!("=== {} matchups ===", comp_kind.label());
 
+        let opponents = BenchmarkBotKind::BASELINE_BOTS
+            .into_iter()
+            .chain(BenchmarkBotKind::COMP_BOTS.into_iter().filter(|kind| *kind != comp_kind));
+
+        for opponent_kind in opponents {
+
+            let as_player_o = summarize_pairing(comp_kind, opponent_kind);
+            let label = format!("{} vs {}", comp_kind.label(), opponent_kind.label());
+            print_pairing_result(&label, as_player_o, OPENING_SCENARIOS.len());
             totals
                 .iter_mut()
-                .find(|(kind, _)| *kind == player_o_kind)
-                .expect("player o total slot exists")
+                .find(|(kind, _)| *kind == comp_kind)
+                .expect("comp bot total slot exists")
                 .1
-                .merge(summary);
+                .merge(as_player_o);
 
-            let mirrored = MatchSummary {
-                wins: summary.losses,
-                losses: summary.wins,
-                draws: summary.draws,
+            let as_player_x_for_opponent = summarize_pairing(opponent_kind, comp_kind);
+            let as_player_x = MatchSummary {
+                wins: as_player_x_for_opponent.losses,
+                losses: as_player_x_for_opponent.wins,
+                draws: as_player_x_for_opponent.draws,
             };
+            let label = format!("{} vs {}", comp_kind.label(), opponent_kind.label());
+            print_pairing_result(&format!("{label} (comp as X)"), as_player_x, OPENING_SCENARIOS.len());
             totals
                 .iter_mut()
-                .find(|(kind, _)| *kind == player_x_kind)
-                .expect("player x total slot exists")
+                .find(|(kind, _)| *kind == comp_kind)
+                .expect("comp bot total slot exists")
                 .1
-                .merge(mirrored);
+                .merge(as_player_x);
         }
     }
 
-    println!("=== Aggregate bot totals across all ordered matchups and openings ===");
+    println!("=== Aggregate comp bot totals across targeted matchups and openings ===");
     for (kind, summary) in totals {
         let games = summary.wins + summary.losses + summary.draws;
         println!(

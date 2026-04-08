@@ -1,8 +1,12 @@
 use crate::engine::{GameOver, prelude::*};
-use crate::players::strategy_center::StrategyCenterBot;
-use crate::players::strategy_greedy_space::StrategyGreedySpaceBot;
-use crate::players::strategy_safe::StrategySafeBot;
-use crate::players::strategy_wall_hug::StrategyWallHugBot;
+use crate::players::strategy_bots::strategy_chaser::StrategyChaserBot;
+use crate::players::strategy_bots::strategy_center::StrategyCenterBot;
+use crate::players::strategy_bots::strategy_corner::StrategyCornerBot;
+use crate::players::strategy_bots::strategy_greedy_space::StrategyGreedySpaceBot;
+use crate::players::strategy_bots::strategy_max_branch::StrategyMaxBranchBot;
+use crate::players::strategy_bots::strategy_safe::StrategySafeBot;
+use crate::players::strategy_bots::strategy_straight::StrategyStraightBot;
+use crate::players::strategy_bots::strategy_wall_hug::StrategyWallHugBot;
 
 use super::analysis::{
     calculate_voronoi_territory, connected_component_count, connected_regions,
@@ -24,16 +28,24 @@ enum BenchmarkBotKind {
     Safe,
     WallHug,
     Center,
+    Corner,
     GreedySpace,
+    MaxBranch,
+    Chaser,
+    Straight,
 }
 
 impl BenchmarkBotKind {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 9] = [
         Self::Heuristic,
         Self::Safe,
         Self::WallHug,
         Self::Center,
+        Self::Corner,
         Self::GreedySpace,
+        Self::MaxBranch,
+        Self::Chaser,
+        Self::Straight,
     ];
 
     const fn label(self) -> &'static str {
@@ -42,7 +54,11 @@ impl BenchmarkBotKind {
             Self::Safe => "strategy_safe",
             Self::WallHug => "strategy_wall_hug",
             Self::Center => "strategy_center",
+            Self::Corner => "strategy_corner",
             Self::GreedySpace => "strategy_greedy_space",
+            Self::MaxBranch => "strategy_max_branch",
+            Self::Chaser => "strategy_chaser",
+            Self::Straight => "strategy_straight",
         }
     }
 }
@@ -131,7 +147,11 @@ fn instantiate_bot(kind: BenchmarkBotKind, player_id: PlayerId) -> Box<dyn BotRu
         BenchmarkBotKind::Safe => Box::new(StrategySafeBot::new(player_id)),
         BenchmarkBotKind::WallHug => Box::new(StrategyWallHugBot::new(player_id)),
         BenchmarkBotKind::Center => Box::new(StrategyCenterBot::new(player_id)),
+        BenchmarkBotKind::Corner => Box::new(StrategyCornerBot::new(player_id)),
         BenchmarkBotKind::GreedySpace => Box::new(StrategyGreedySpaceBot::new(player_id)),
+        BenchmarkBotKind::MaxBranch => Box::new(StrategyMaxBranchBot::new(player_id)),
+        BenchmarkBotKind::Chaser => Box::new(StrategyChaserBot::new(player_id)),
+        BenchmarkBotKind::Straight => Box::new(StrategyStraightBot::new(player_id)),
     }
 }
 
@@ -204,7 +224,7 @@ fn benchmark_simple_strategies_against_heuristic_bot_v1() {
         println!("- {} ({} ply)", scenario.label, scenario.script.len());
     }
 
-    let mut totals = [(BenchmarkBotKind::Heuristic, MatchSummary::default()); 5];
+    let mut totals = [(BenchmarkBotKind::Heuristic, MatchSummary::default()); 9];
     for (slot, kind) in totals.iter_mut().zip(BenchmarkBotKind::ALL) {
         slot.0 = kind;
     }

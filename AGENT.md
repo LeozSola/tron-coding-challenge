@@ -57,8 +57,10 @@ The current skeleton already provides:
 
 ### 4. Strengthen phase detection
 - [ ] Tighten `Contact` vs `Split` using shared reachable-space analysis
-- [ ] Improve `Endgame` detection with empty-cell and corridor metrics
-- [ ] Apply phase-specific weight sets in the evaluator
+- [ ] Replace boolean shared-space checks with richer regime signals such as shared reachable-cell count, contested Voronoi ratio, and head distance
+- [ ] Improve `Endgame` detection with empty-cell, projected-space, fragmentation, and corridor-severity metrics
+- [ ] Consider soft regime outputs (`contact_score`, `split_score`, `endgame_score`) if they integrate cleanly with the evaluator
+- [ ] Apply phase-specific weight sets or blends in the evaluator
 
 **Exit criteria:** the scoring behavior changes meaningfully by regime.
 
@@ -80,29 +82,36 @@ The current skeleton already provides:
 
 ### 7. Build a stable feature extractor
 - [ ] Define a compact scalar feature vector per candidate move
-- [ ] Include phase indicators, legal masks, reachable counts, Voronoi counts, and local geometry
-- [ ] Keep feature ordering stable for offline training/export
+- [ ] Include phase indicators or soft regime scores, legal masks, reachable counts, Voronoi counts, and local geometry
+- [ ] Include trap/corridor/articulation/fragmentation signals already used by the heuristic evaluator
+- [ ] Decide which opponent-profile signals are stable enough to expose as features
+- [ ] Keep feature ordering stable and versioned for offline training/export
 
 **Exit criteria:** a single `extract_features(...)` path can support both heuristics and offline ML.
 
 ### 8. Add offline tooling outside the submitted bot
 - [ ] Create self-play data generation scripts / binaries
 - [ ] Serialize replays and labeled move scores
+- [ ] Export per-candidate examples of `(state, move, features, label)` for offline training
+- [ ] Support labels from heuristic/search teachers and eventual game outcomes
 - [ ] Build train/validation/test splits
 
-**Exit criteria:** you can generate teacher-labeled training data without bloating the runtime bot.
+**Exit criteria:** you can generate teacher-labeled and self-play-labeled training data without bloating the runtime bot.
 
 ### 9. Train and distill a compact model
 - [ ] Start with linear / tiny MLP models on handcrafted features
 - [ ] Compare by tournament win rate, not just training accuracy
+- [ ] Optimize for move ranking or value prediction before attempting larger raw-board models
 - [ ] Export compact weights for embedding back into Rust
+- [ ] Optionally apply population-based / evolutionary fine-tuning for heuristic weights, phase thresholds, blend coefficients, or tiny MLP parameters
 
 **Exit criteria:** the chosen model improves move ranking while staying tiny and deterministic.
 
 ### 10. Integrate the hybrid final policy
-- [ ] Combine safety filtering, heuristics, compact model priors, and shallow search
+- [ ] Combine safety filtering, heuristics, compact model priors/values, and shallow search
 - [ ] Keep a deterministic fallback path at every stage
 - [ ] Add confidence-based fallback to heuristic-only behavior
+- [ ] Keep the runtime path explicitly split into: safety filter -> feature extraction -> model inference -> optional search correction -> deterministic fallback
 
 **Exit criteria:** final tournament bot is robust, fast, and dependency-light.
 
@@ -140,6 +149,14 @@ The current skeleton already provides:
 2. Implement Voronoi / contested-territory scoring.
 3. Replace the search placeholder with 1-ply simultaneous search.
 4. Add batch evaluation tooling for bot-vs-bot runs.
+
+## Hybrid ML strategy notes
+
+- Runtime competition play should do **inference only**, never training.
+- On each turn, recompute board analysis and per-candidate features, then pass those features into the compact trained model.
+- The preferred early architecture is a **hybrid policy**: safety rules + handcrafted heuristic features + tiny MLP prior/value + optional shallow search.
+- The model should sit **on top of** heuristics, not try to rediscover all board logic from scratch.
+- Population-based / evolutionary methods are most useful as an outer-loop optimizer for heuristic weights, phase thresholds, blend coefficients, and compact pretrained models rather than as the only learning method from raw self-play.
 
 ## Local validation commands
 
