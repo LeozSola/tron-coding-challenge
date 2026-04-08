@@ -6,6 +6,7 @@ mod opponent;
 mod phase;
 mod safety;
 mod search;
+#[cfg(test)]
 mod tests;
 mod types;
 

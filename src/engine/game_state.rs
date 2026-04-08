@@ -36,6 +36,9 @@ impl GameState {
     pub fn is_game_over(&self) -> bool {
         self.game_over.is_some()
     }
+    pub fn game_over(&self) -> Option<GameOver> {
+        self.game_over
+    }
     /// returns true if game not over
     pub fn go_to_next_frame(
         &mut self,

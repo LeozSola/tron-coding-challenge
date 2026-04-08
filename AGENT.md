@@ -44,10 +44,10 @@ The current skeleton already provides:
 **Exit criteria:** the bot module has a stable internal analysis toolkit instead of ad hoc per-feature code.
 
 ### 3. Upgrade the heuristic evaluator
-- [ ] Replace placeholder scoring with explicit weighted features
-- [ ] Score reachable space after the move more accurately
-- [ ] Add self-trap penalties and cut-opponent bonuses
-- [ ] Tune tie-breaking to stay deterministic while stronger than the example bot
+- [x] Replace placeholder scoring with explicit weighted features
+- [x] Score reachable space after the move more accurately
+- [x] Add self-trap penalties and cut-opponent bonuses
+- [x] Tune tie-breaking to stay deterministic while stronger than the example bot
 
 **Exit criteria:** `HeuristicBot v1` consistently beats trivial and noisy baselines.
 
