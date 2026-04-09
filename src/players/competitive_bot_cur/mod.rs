@@ -12,7 +12,7 @@ mod types;
 
 use heuristic::HeuristicEvaluator;
 use opponent::update_opponent_profile;
-use phase::detect_phase;
+use phase::{detect_phase, detect_phase_profile};
 use safety::MoveSafetyAnalyzer;
 use search::search_best_move;
 use types::{HeuristicWeights, OpponentProfile};
@@ -36,11 +36,12 @@ impl Bot for CompetitiveBot {
     fn next_action(&mut self, game_state: &GameState) -> Direction {
         update_opponent_profile(&mut self.opponent_profile, self.my_player_id, game_state);
 
-        let phase = detect_phase(self.my_player_id, game_state);
+        let phase_profile = detect_phase_profile(self.my_player_id, game_state);
+        let phase = phase_profile.phase;
         let safety = MoveSafetyAnalyzer::new(self.my_player_id);
         let evaluator = HeuristicEvaluator::new(self.my_player_id, self.weights, self.opponent_profile);
 
-        let mut candidates = evaluator.evaluate_moves(game_state, phase, &safety);
+        let mut candidates = evaluator.evaluate_moves(game_state, phase_profile, &safety);
         evaluator.sort_moves(&mut candidates);
 
         if let Some(search_move) = search_best_move(

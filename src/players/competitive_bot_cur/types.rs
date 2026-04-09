@@ -31,6 +31,37 @@ pub enum GamePhase {
     Endgame,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PhaseScores {
+    pub contact: f32,
+    pub split: f32,
+    pub endgame: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PhaseProfile {
+    pub phase: GamePhase,
+    pub scores: PhaseScores,
+    pub empty_cells: usize,
+    pub empty_components: usize,
+    pub my_reachable: usize,
+    pub opponent_reachable: usize,
+    pub shared_reachable: usize,
+    pub contested_cells: usize,
+    pub contested_ratio: f32,
+    pub head_distance: usize,
+    pub my_local_open_area: usize,
+    pub opponent_local_open_area: usize,
+    pub my_branching: usize,
+    pub opponent_branching: usize,
+    pub my_projected_space: usize,
+    pub opponent_projected_space: usize,
+    pub my_region_fragmentation: usize,
+    pub opponent_region_fragmentation: usize,
+    pub my_corridor_severity: f32,
+    pub opponent_corridor_severity: f32,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct MoveFeatures {
     pub reachable_area: usize,
@@ -53,6 +84,12 @@ pub struct MoveFeatures {
     pub territory_balance: isize,
     pub cut_potential: usize,
     pub phase: GamePhase,
+    pub contact_score: f32,
+    pub split_score: f32,
+    pub endgame_score: f32,
+    pub phase_contested_ratio: f32,
+    pub phase_shared_reachable: usize,
+    pub phase_corridor_severity: f32,
 }
 
 #[derive(Debug, Clone, Copy)]

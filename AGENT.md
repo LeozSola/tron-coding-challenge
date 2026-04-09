@@ -56,13 +56,13 @@ The current skeleton already provides:
 **Exit criteria:** `HeuristicBot v1` consistently beats trivial and noisy baselines.
 
 ### 4. Strengthen phase detection
-- [ ] Tighten `Contact` vs `Split` using shared reachable-space analysis
-- [ ] Replace boolean shared-space checks with richer regime signals such as shared reachable-cell count, contested Voronoi ratio, and head distance
-- [ ] Improve `Endgame` detection with empty-cell, projected-space, fragmentation, and corridor-severity metrics
-- [ ] Consider soft regime outputs (`contact_score`, `split_score`, `endgame_score`) if they integrate cleanly with the evaluator
-- [ ] Apply phase-specific weight sets or blends in the evaluator
+- [x] Tighten `Contact` vs `Split` using shared reachable-space analysis
+- [x] Replace boolean shared-space checks with richer regime signals such as shared reachable-cell count, contested Voronoi ratio, and head distance
+- [x] Improve `Endgame` detection with projected-space, reachable-region fragmentation, and corridor-severity metrics beyond current empty-cell/local-pressure heuristics
+- [x] Consider soft regime outputs (`contact_score`, `split_score`, `endgame_score`) if they integrate cleanly with the evaluator
+- [x] Expand evaluator integration so regime detection affects more than hard phase selection, either through richer phase-conditioned blends or by passing phase-profile signals into scoring
 
-**Exit criteria:** the scoring behavior changes meaningfully by regime.
+**Exit criteria:** the scoring behavior changes meaningfully by regime and the remaining regime distinctions are backed by targeted tests.
 
 ### 5. Add shallow simultaneous search
 - [ ] Generate legal self moves and legal opponent moves

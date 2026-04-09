@@ -7,7 +7,10 @@ use super::analysis::{
     local_open_area_score, manhattan_distance, reachable_area_count, reachable_region_fragmentation,
 };
 use super::safety::MoveSafetyAnalyzer;
-use super::types::{GamePhase, HeuristicWeights, MoveFeatures, MoveSafety, OpponentProfile, ScoredMove};
+use super::types::{
+    GamePhase, HeuristicWeights, MoveFeatures, MoveSafety, OpponentProfile, PhaseProfile,
+    ScoredMove,
+};
 
 pub struct HeuristicEvaluator {
     my_player_id: PlayerId,
@@ -31,7 +34,7 @@ impl HeuristicEvaluator {
     pub fn evaluate_moves(
         &self,
         game_state: &GameState,
-        phase: GamePhase,
+        phase_profile: PhaseProfile,
         safety: &MoveSafetyAnalyzer,
     ) -> Vec<ScoredMove> {
         let grid = game_state.current_grid();
@@ -43,7 +46,9 @@ impl HeuristicEvaluator {
                 let features = my_head
                     .after_moved(direction)
                     .filter(|next_pos| grid.cell_is_empty(*next_pos))
-                    .map(|next_pos| self.extract_features(game_state, direction, next_pos, phase));
+                    .map(|next_pos| {
+                        self.extract_features(game_state, direction, next_pos, phase_profile)
+                    });
 
                 let mut score = match (move_safety, features) {
                     (MoveSafety::Losing(_), _) => f32::NEG_INFINITY,
@@ -112,6 +117,12 @@ impl HeuristicEvaluator {
         score += pressure_window * self.weights.opponent_pressure_bonus;
         score += self.edge_stability_bonus(features);
         score += self.partition_quality_bonus(features);
+        score += features.contact_score * features.voronoi_contested as f32 * 0.10;
+        score += features.split_score * features.phase_shared_reachable as f32 * -0.03;
+        score += features.endgame_score * features.projected_reachable_area as f32 * 0.18;
+        score += features.phase_contested_ratio * 6.0 * features.contact_score;
+        score -= features.phase_corridor_severity * 8.0 * features.contact_score.max(features.split_score * 0.5);
+        score -= features.phase_corridor_severity * 5.0 * features.endgame_score;
 
         if features.narrow_corridor {
             score -= self.weights.narrow_corridor_penalty;
@@ -218,7 +229,7 @@ impl HeuristicEvaluator {
         game_state: &GameState,
         direction: Direction,
         candidate_position: GridPosition,
-        phase: GamePhase,
+        phase_profile: PhaseProfile,
     ) -> MoveFeatures {
         let grid = game_state.current_grid();
         let opponent_head = grid.player_head_position(self.my_player_id.other());
@@ -271,7 +282,15 @@ impl HeuristicEvaluator {
             voronoi_contested: voronoi.contested,
             territory_balance,
             cut_potential: voronoi.mine.saturating_sub(voronoi.theirs),
-            phase,
+            phase: phase_profile.phase,
+            contact_score: phase_profile.scores.contact,
+            split_score: phase_profile.scores.split,
+            endgame_score: phase_profile.scores.endgame,
+            phase_contested_ratio: phase_profile.contested_ratio,
+            phase_shared_reachable: phase_profile.shared_reachable,
+            phase_corridor_severity: phase_profile
+                .my_corridor_severity
+                .max(phase_profile.opponent_corridor_severity),
         }
     }
 

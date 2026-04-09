@@ -16,6 +16,7 @@ use super::analysis::{
     local_open_area_score, normalized_relative_offset, reachable_area_count,
 };
 use super::heuristic::HeuristicEvaluator;
+use super::phase::{classify_phase, classify_phase_profile};
 use super::safety::MoveSafetyAnalyzer;
 use super::types::{
     GamePhase, HeuristicWeights, LossReason, MoveFeatures, MoveSafety, OpponentProfile,
@@ -497,6 +498,12 @@ fn heuristic_rewards_territory_and_open_space() {
         territory_balance: 12,
         cut_potential: 12,
         phase: GamePhase::Contact,
+        contact_score: 0.8,
+        split_score: 0.2,
+        endgame_score: 0.1,
+        phase_contested_ratio: 0.12,
+        phase_shared_reachable: 20,
+        phase_corridor_severity: 0.1,
     };
     let weak = MoveFeatures {
         reachable_area: 24,
@@ -519,6 +526,12 @@ fn heuristic_rewards_territory_and_open_space() {
         territory_balance: -10,
         cut_potential: 0,
         phase: GamePhase::Contact,
+        contact_score: 0.8,
+        split_score: 0.2,
+        endgame_score: 0.1,
+        phase_contested_ratio: 0.12,
+        phase_shared_reachable: 20,
+        phase_corridor_severity: 0.1,
     };
 
     assert!(evaluator.score_features(strong) > evaluator.score_features(weak));
@@ -553,6 +566,12 @@ fn heuristic_penalizes_self_trap_signals() {
         territory_balance: 1,
         cut_potential: 1,
         phase: GamePhase::Split,
+        contact_score: 0.15,
+        split_score: 0.75,
+        endgame_score: 0.15,
+        phase_contested_ratio: 0.05,
+        phase_shared_reachable: 6,
+        phase_corridor_severity: 0.2,
     };
     let trapped = MoveFeatures {
         reachable_area: 16,
@@ -575,6 +594,12 @@ fn heuristic_penalizes_self_trap_signals() {
         territory_balance: -10,
         cut_potential: 0,
         phase: GamePhase::Split,
+        contact_score: 0.15,
+        split_score: 0.75,
+        endgame_score: 0.15,
+        phase_contested_ratio: 0.05,
+        phase_shared_reachable: 6,
+        phase_corridor_severity: 0.7,
     };
 
     assert!(evaluator.score_features(safe) > evaluator.score_features(trapped));
@@ -609,6 +634,12 @@ fn heuristic_softens_wall_penalty_for_stable_edge_positions() {
         territory_balance: 6,
         cut_potential: 6,
         phase: GamePhase::Split,
+        contact_score: 0.1,
+        split_score: 0.8,
+        endgame_score: 0.1,
+        phase_contested_ratio: 0.04,
+        phase_shared_reachable: 4,
+        phase_corridor_severity: 0.1,
     };
     let same_but_not_wall = MoveFeatures {
         wall_hugging: false,
@@ -648,6 +679,12 @@ fn heuristic_keeps_fuller_wall_penalty_for_cramped_edge_positions() {
         territory_balance: -7,
         cut_potential: 0,
         phase: GamePhase::Contact,
+        contact_score: 0.7,
+        split_score: 0.25,
+        endgame_score: 0.15,
+        phase_contested_ratio: 0.1,
+        phase_shared_reachable: 12,
+        phase_corridor_severity: 0.8,
     };
     let same_but_not_wall = MoveFeatures {
         wall_hugging: false,
@@ -714,7 +751,8 @@ fn heuristic_evaluation_populates_phase_three_features() {
     );
     let state = GameState::new();
     let safety = MoveSafetyAnalyzer::new(PlayerId::new_o());
-    let candidates = evaluator.evaluate_moves(&state, GamePhase::Contact, &safety);
+    let phase_profile = classify_phase_profile(PlayerId::new_o(), state.current_grid());
+    let candidates = evaluator.evaluate_moves(&state, phase_profile, &safety);
     let best_safe = candidates
         .iter()
         .find(|candidate| candidate.direction == Direction::PositiveY)
@@ -756,6 +794,12 @@ fn heuristic_rewards_stronger_partition_quality() {
         territory_balance: 6,
         cut_potential: 6,
         phase: GamePhase::Split,
+        contact_score: 0.1,
+        split_score: 0.85,
+        endgame_score: 0.1,
+        phase_contested_ratio: 0.03,
+        phase_shared_reachable: 2,
+        phase_corridor_severity: 0.15,
     };
     let weak_partition = MoveFeatures {
         largest_region_ratio: 0.68,
@@ -782,6 +826,151 @@ fn analysis_detects_open_region_quality_signals() {
     assert!(largest_reachable_region_ratio(grid, start) > 0.9);
     assert!(edge_escape_routes(grid, start) >= 2);
     assert!(!is_semi_split_pressure(24, 10, 3, 2, 1.0));
+}
+
+#[test]
+fn phase_detection_classifies_opening_as_contact() {
+    let state = GameState::new();
+
+    assert_eq!(classify_phase(PlayerId::new_o(), state.current_grid()), GamePhase::Contact);
+}
+
+#[test]
+fn phase_detection_classifies_separated_regions_as_split() {
+    let mut grid = GameState::new().current_grid().clone();
+
+    for y in 0..GRID_SIZE {
+        let position = GridPosition::new(10, y).expect("in bounds");
+        *grid.get_cell_mut(position) = GridCell::Tail(PlayerId::new_o(), Direction::PositiveY);
+    }
+
+    *grid.get_cell_mut(grid.player_head_position(PlayerId::new_o())) =
+        GridCell::Head(PlayerId::new_o(), Direction::NegativeX);
+    *grid.get_cell_mut(grid.player_head_position(PlayerId::new_x())) =
+        GridCell::Head(PlayerId::new_x(), Direction::PositiveX);
+
+    assert_eq!(classify_phase(PlayerId::new_o(), &grid), GamePhase::Split);
+}
+
+#[test]
+fn phase_detection_classifies_low_space_boards_as_endgame() {
+    let mut grid = GameState::new().current_grid().clone();
+
+    for position in GridPosition::iter_positions() {
+        if grid.get_cell(position).is_head() {
+            continue;
+        }
+
+        *grid.get_cell_mut(position) = GridCell::Tail(PlayerId::new_o(), Direction::PositiveY);
+    }
+
+    let preserved_open_cells = [
+        GridPosition::new(0, 0).expect("in bounds"),
+        GridPosition::new(1, 0).expect("in bounds"),
+        GridPosition::new(2, 0).expect("in bounds"),
+        GridPosition::new(3, 0).expect("in bounds"),
+        GridPosition::new(4, 0).expect("in bounds"),
+        GridPosition::new(5, 0).expect("in bounds"),
+        GridPosition::new(6, 0).expect("in bounds"),
+        GridPosition::new(7, 0).expect("in bounds"),
+        GridPosition::new(8, 0).expect("in bounds"),
+        GridPosition::new(9, 0).expect("in bounds"),
+    ];
+
+    for position in preserved_open_cells {
+        *grid.get_cell_mut(position) = GridCell::Empty;
+    }
+
+    assert_eq!(classify_phase(PlayerId::new_o(), &grid), GamePhase::Endgame);
+}
+
+#[test]
+fn phase_profile_exposes_soft_scores_and_prefers_endgame_when_corridors_tighten() {
+    let mut grid = GameState::new().current_grid().clone();
+
+    for position in GridPosition::iter_positions() {
+        if grid.get_cell(position).is_head() {
+            continue;
+        }
+
+        *grid.get_cell_mut(position) = GridCell::Tail(PlayerId::new_o(), Direction::PositiveY);
+    }
+
+    let preserved_open_cells = [
+        GridPosition::new(8, 9).expect("in bounds"),
+        GridPosition::new(9, 9).expect("in bounds"),
+        GridPosition::new(10, 9).expect("in bounds"),
+        GridPosition::new(10, 10).expect("in bounds"),
+        GridPosition::new(10, 11).expect("in bounds"),
+        GridPosition::new(11, 11).expect("in bounds"),
+        GridPosition::new(12, 11).expect("in bounds"),
+        GridPosition::new(12, 12).expect("in bounds"),
+    ];
+
+    for position in preserved_open_cells {
+        if !grid.get_cell(position).is_head() {
+            *grid.get_cell_mut(position) = GridCell::Empty;
+        }
+    }
+
+    let profile = classify_phase_profile(PlayerId::new_o(), &grid);
+    assert_eq!(profile.phase, GamePhase::Endgame);
+    assert!(profile.scores.endgame > profile.scores.contact);
+    assert!(profile.scores.endgame > profile.scores.split);
+    assert!(profile.my_corridor_severity > 0.0 || profile.opponent_corridor_severity > 0.0);
+}
+
+#[test]
+fn heuristic_phase_profile_changes_scoring_for_identical_move_shape() {
+    let evaluator = HeuristicEvaluator::new(
+        PlayerId::new_o(),
+        HeuristicWeights::default(),
+        OpponentProfile::default(),
+    );
+
+    let contact_features = MoveFeatures {
+        reachable_area: 20,
+        projected_reachable_area: 18,
+        branching_factor: 3,
+        local_open_area: 8,
+        center_preference: 0.5,
+        opponent_distance: 3,
+        largest_region_ratio: 0.9,
+        region_fragmentation: 1,
+        edge_escape_routes: 2,
+        semi_split_pressure: false,
+        narrow_corridor: false,
+        wall_hugging: false,
+        articulation_risk: false,
+        self_trap_risk: false,
+        voronoi_mine: 20,
+        voronoi_theirs: 18,
+        voronoi_contested: 10,
+        territory_balance: 2,
+        cut_potential: 2,
+        phase: GamePhase::Contact,
+        contact_score: 0.85,
+        split_score: 0.20,
+        endgame_score: 0.10,
+        phase_contested_ratio: 0.18,
+        phase_shared_reachable: 18,
+        phase_corridor_severity: 0.15,
+    };
+    let endgame_features = MoveFeatures {
+        phase: GamePhase::Endgame,
+        contact_score: 0.10,
+        split_score: 0.15,
+        endgame_score: 0.90,
+        phase_contested_ratio: 0.03,
+        phase_shared_reachable: 4,
+        phase_corridor_severity: 0.75,
+        ..contact_features
+    };
+
+    assert_ne!(
+        evaluator.score_features(contact_features),
+        evaluator.score_features(endgame_features)
+    );
 }
 
 #[test]
