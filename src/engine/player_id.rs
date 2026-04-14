@@ -1,30 +1,49 @@
 use std::fmt::Display;
 
+use crate::engine::prelude::*;
+
+/// An enum representing the ID of a player. There are only two players, O and
+/// X.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PlayerId(bool);
+pub enum PlayerId{O, X}
 impl PlayerId {
+    /// Equivalent to `PlayerId::O`.
     pub fn new_o() -> PlayerId {
-        PlayerId(true)
+        PlayerId::O
     }
+    /// Equivalent to `PlayerId::X`.
     pub fn new_x() -> PlayerId {
-        PlayerId(false)
+        PlayerId::X
     }
     pub fn is_o(&self) -> bool {
-        self.0
+        *self == PlayerId::O
     }
     pub fn is_x(&self) -> bool {
-        !self.0
+        *self == PlayerId::X
     }
+    /// Returns the other player ID. For example, if `self` is `PlayerId::O`,
+    /// this returns `PlayerId::X`, and vice versa.
     pub fn other(&self) -> Self {
-        PlayerId(!self.0)
+        match self {
+            PlayerId::O => PlayerId::X,
+            PlayerId::X => PlayerId::O,
+        }
+    }
+    
+    /// Returns the head position of the player on the given grid.
+    pub fn get_head_pos(&self, grid: &Grid)->GridPosition{
+        grid.player_head_position(*self)
+    }
+    /// Returns the head direction of the player on the given grid.
+    pub fn get_head_direction(&self, grid: &Grid)->Direction{
+        grid.player_head_direction(*self)
     }
 }
 impl Display for PlayerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let player = match self.0 {
-            true => "O",
-            false => "X",
-        };
-        write!(f, "{}", player)
+        write!(f, "{}", match self {
+            PlayerId::O => "O",
+            PlayerId::X => "X",
+        })
     }
 }
